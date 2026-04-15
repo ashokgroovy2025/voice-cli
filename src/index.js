@@ -84,48 +84,46 @@ async function startDaemon({ transcribe, hotkey, clipboardMode, provider, lang, 
     console.log('');
   }
 
-  // ── Load global key listener ──────────────────────────────
-  let GlobalKeyboardListener;
+  // ── Load uiohook-napi for global hotkey ──────────────────
+  let uIOhook, UiohookKey;
   try {
-    const mod = await import('node-global-key-listener');
-    GlobalKeyboardListener = mod.GlobalKeyboardListener;
+    const mod = await import('uiohook-napi');
+    uIOhook    = mod.uIOhook;
+    UiohookKey = mod.UiohookKey;
   } catch {
-    console.log(chalk.red('  ✗  node-global-key-listener not found.'));
-    console.log(chalk.yellow('  Run: npm install -g voice-cli  (reinstall)\n'));
+    console.log(chalk.red('  ✗  uiohook-napi not found. Reinstall: npm install -g github:ashokgroovy2025/voice-cli\n'));
     process.exit(1);
   }
 
-  const listener = new GlobalKeyboardListener();
-
-  // Parse hotkey string like "ctrl+alt+space"
-  const parts   = hotkey.toLowerCase().split('+');
-  const trigKey = parts[parts.length - 1];   // last part = main key
+  // Parse hotkey string like "ctrl+shift+m"
+  const parts     = hotkey.toLowerCase().split('+');
+  const trigKey   = parts[parts.length - 1];
   const needCtrl  = parts.includes('ctrl');
   const needAlt   = parts.includes('alt');
   const needShift = parts.includes('shift');
 
-  // Key name mapping (node-global-key-listener uses different names)
-  const KEY_MAP = {
-    'space': 'SPACE',
-    'enter': 'RETURN',
-    'tab':   'TAB',
+  // Map key name to uiohook keycode
+  const KEY_CODES = {
+    'space': 57, 'enter': 28, 'tab': 15,
+    'a':65,'b':48,'c':46,'d':32,'e':18,'f':33,'g':34,'h':35,'i':23,'j':36,
+    'k':37,'l':38,'m':50,'n':49,'o':24,'p':25,'q':16,'r':19,'s':31,'t':20,
+    'u':22,'v':47,'w':17,'x':45,'y':21,'z':44,
+    'f1':59,'f2':60,'f3':61,'f4':62,'f5':63,'f6':64,'f7':65,'f8':66,'f9':67,'f10':68,'f11':87,'f12':88,
   };
-  const targetKey = KEY_MAP[trigKey] || trigKey.toUpperCase();
+  const targetCode = KEY_CODES[trigKey];
+  if (!targetCode) {
+    console.log(chalk.red(`  ✗  Unknown key: "${trigKey}". Use letters, space, enter, or f1-f12\n`));
+    process.exit(1);
+  }
 
-  let recording  = false;
-  let stopFn     = null;
-  let pressedKeys = new Set();
+  let recording = false;
+  let stopFn    = null;
 
-  listener.addListener((e, down) => {
-    const name = e.name || '';
-
-    if (e.state === 'DOWN') pressedKeys.add(name);
-    if (e.state === 'UP')   pressedKeys.delete(name);
-
-    const ctrlOk  = !needCtrl  || pressedKeys.has('LEFT CTRL')  || pressedKeys.has('RIGHT CTRL');
-    const altOk   = !needAlt   || pressedKeys.has('LEFT ALT')   || pressedKeys.has('RIGHT ALT');
-    const shiftOk = !needShift || pressedKeys.has('LEFT SHIFT') || pressedKeys.has('RIGHT SHIFT');
-    const keyHit  = name === targetKey && e.state === 'DOWN';
+  uIOhook.on('keydown', (e) => {
+    const ctrlOk  = !needCtrl  || e.ctrlKey;
+    const altOk   = !needAlt   || e.altKey;
+    const shiftOk = !needShift || e.shiftKey;
+    const keyHit  = e.keycode === targetCode;
 
     if (!keyHit || !ctrlOk || !altOk || !shiftOk) return;
 
@@ -178,15 +176,14 @@ async function startDaemon({ transcribe, hotkey, clipboardMode, provider, lang, 
     }
   });
 
-  // Keep process alive
+  // Start listening
+  uIOhook.start();
+
   process.on('SIGINT', () => {
-    listener.kill();
+    uIOhook.stop();
     console.log('\n' + chalk.gray('  voice-cli stopped. Bye! 👋\n'));
     process.exit(0);
   });
-
-  // Prevent process from exiting
-  setInterval(() => {}, 1 << 30);
 }
 
 // ── Auto-type implementation ──────────────────────────────────

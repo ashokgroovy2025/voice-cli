@@ -45,7 +45,7 @@
     "commander": "^12.0.0",
     "dotenv": "^16.4.5",
     "microsoft-cognitiveservices-speech-sdk": "^1.42.0",
-    "node-global-key-listener": "^0.3.0"
+    "uiohook-napi": "^1.5.5"
   },
   "optionalDependencies": {
     "@nut-tree/nut-js": "^4.2.1"
