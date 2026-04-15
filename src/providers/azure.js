@@ -1,3 +1,6 @@
+// Azure Speech SDK requires window/XMLHttpRequest globals in Node.js
+if (typeof window === 'undefined') { global.window = global; }
+
 import sdk from 'microsoft-cognitiveservices-speech-sdk';
 
 /**
