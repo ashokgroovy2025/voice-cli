@@ -37,7 +37,8 @@ Write-Host "REC_STARTED"
 [Console]::Out.Flush()
 $null = [Console]::In.ReadLine()
 Send-MCI("stop cap")                         | Out-Null
-$saveResult = Send-MCI("save cap `"$file`"")
+$q = [char]34
+$saveResult = Send-MCI("save cap $q$file$q")
 Write-Host "SAVE_RESULT:$saveResult"
 Send-MCI("close cap")                        | Out-Null
 Write-Host "DONE"
