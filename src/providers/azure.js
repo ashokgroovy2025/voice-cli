@@ -1,7 +1,11 @@
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 
-// Force Node.js bundle (not browser bundle) via CommonJS require
+// Azure Speech SDK needs these browser globals in Node.js — set BEFORE require
+if (typeof global.window    === 'undefined') global.window    = global;
+if (typeof global.document  === 'undefined') global.document  = { createElement: () => ({}) };
+if (typeof global.navigator === 'undefined') global.navigator = { userAgent: 'node' };
+
 const sdk = require('microsoft-cognitiveservices-speech-sdk');
 
 /**
