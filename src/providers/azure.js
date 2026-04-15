@@ -70,13 +70,33 @@ Write-Host "DONE"
     const fileExists = fs.existsSync(wavPath);
     const fileSize   = fileExists ? fs.statSync(wavPath).size : 0;
 
-    console.log('\n' +
-      `  [debug] PS output: ${psOutput.trim().replace(/\n/g, ' | ')}\n` +
-      `  [debug] WAV: ${wavPath} | exists: ${fileExists} | size: ${fileSize} bytes`
+    // Check if audio is silent (all near-zero bytes after 44-byte WAV header)
+    let isSilent = false;
+    if (fileExists && fileSize > 500) {
+      const buf = fs.readFileSync(wavPath);
+      const audioData = buf.slice(44); // skip WAV header
+      let sum = 0;
+      for (let i = 0; i < Math.min(audioData.length, 8000); i++) {
+        sum += Math.abs(audioData[i] - 128); // 8-bit: silence = 128
+      }
+      const avgLevel = sum / Math.min(audioData.length, 8000);
+      isSilent = avgLevel < 2; // very low signal = silent
+      console.log(`\n  [debug] Audio level: ${avgLevel.toFixed(2)} ${isSilent ? '⚠ SILENT — mic not capturing' : '✓ audio detected'}`);
+    }
+
+    console.log(
+      `  [debug] PS: ${psOutput.trim().replace(/\n/g, ' | ')}\n` +
+      `  [debug] WAV: ${wavPath} | size: ${fileSize} bytes`
     );
 
     if (!fileExists || fileSize < 500) {
       console.log('  [debug] WAV too small — mic not captured');
+      resolveFinal('');
+      return;
+    }
+
+    if (isSilent) {
+      console.log('  ⚠  Microphone is silent. Fix: Win+R → mmsys.cpl → Recording tab → set your mic as Default Device');
       resolveFinal('');
       return;
     }
