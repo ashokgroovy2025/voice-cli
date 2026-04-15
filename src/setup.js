@@ -109,28 +109,51 @@ export async function runSetup() {
   // Step 2: Credentials
   if (provider === 'azure') {
     console.log('');
-    console.log(chalk.gray('  Get your key: portal.azure.com → Speech resource → Keys and Endpoint'));
+    console.log(chalk.cyan.bold('  How to get your Azure Speech Key (free):'));
+    console.log(chalk.gray('  ─────────────────────────────────────────────'));
+    console.log(chalk.white('  1. Open: ') + chalk.cyan('https://portal.azure.com'));
+    console.log(chalk.white('  2. Click ') + chalk.yellow('"Create a resource"'));
+    console.log(chalk.white('  3. Search ') + chalk.yellow('"Speech"') + chalk.white(' → Select ') + chalk.yellow('"Speech"') + chalk.white(' by Microsoft'));
+    console.log(chalk.white('  4. Create it → Pricing tier: ') + chalk.green('F0 (Free)'));
+    console.log(chalk.white('  5. After deploy → Go to resource → ') + chalk.yellow('"Keys and Endpoint"'));
+    console.log(chalk.white('  6. Copy ') + chalk.yellow('KEY 1') + chalk.white(' → paste below'));
+    console.log(chalk.gray('  ─────────────────────────────────────────────'));
     console.log('');
-    const key = await askPassword('  Azure Speech Key: ');
-    if (key.length < 10) { console.log(chalk.red('  Invalid key')); process.exit(1); }
+    const key = await askPassword('  Paste Azure Speech Key 1: ');
+    if (key.length < 10) { console.log(chalk.red('  ✗  Invalid key — too short')); process.exit(1); }
+
+    console.log('');
+    console.log(chalk.gray('  Region is shown on the Keys and Endpoint page (e.g. centralindia, eastus)'));
     const region = await ask(chalk.white('  Azure Region ') + chalk.gray('[centralindia]: '));
     config.AZURE_SPEECH_KEY    = key;
     config.AZURE_SPEECH_REGION = region || 'centralindia';
 
   } else if (provider === 'openai') {
     console.log('');
-    console.log(chalk.gray('  Get your key: platform.openai.com → API Keys'));
+    console.log(chalk.cyan.bold('  How to get your OpenAI API Key:'));
+    console.log(chalk.gray('  ─────────────────────────────────────────────'));
+    console.log(chalk.white('  1. Open: ') + chalk.cyan('https://platform.openai.com'));
+    console.log(chalk.white('  2. Click your profile → ') + chalk.yellow('"API Keys"'));
+    console.log(chalk.white('  3. Click ') + chalk.yellow('"Create new secret key"'));
+    console.log(chalk.white('  4. Copy the key (starts with ') + chalk.yellow('sk-') + chalk.white(') → paste below'));
+    console.log(chalk.gray('  ─────────────────────────────────────────────'));
     console.log('');
-    const key = await askPassword('  OpenAI API Key (sk-...): ');
-    if (!key.startsWith('sk-')) { console.log(chalk.yellow('  Warning: key should start with sk-')); }
+    const key = await askPassword('  Paste OpenAI API Key (sk-...): ');
+    if (!key.startsWith('sk-')) { console.log(chalk.yellow('  ⚠  Warning: key should start with sk-')); }
     config.OPENAI_API_KEY = key;
 
   } else if (provider === 'groq') {
     console.log('');
-    console.log(chalk.gray('  Get your key: console.groq.com → API Keys'));
+    console.log(chalk.cyan.bold('  How to get your Groq API Key (free):'));
+    console.log(chalk.gray('  ─────────────────────────────────────────────'));
+    console.log(chalk.white('  1. Open: ') + chalk.cyan('https://console.groq.com'));
+    console.log(chalk.white('  2. Sign up / Log in (free account)'));
+    console.log(chalk.white('  3. Click ') + chalk.yellow('"API Keys"') + chalk.white(' in left sidebar'));
+    console.log(chalk.white('  4. Click ') + chalk.yellow('"Create API Key"') + chalk.white(' → Copy → paste below'));
+    console.log(chalk.gray('  ─────────────────────────────────────────────'));
     console.log('');
-    const key = await askPassword('  Groq API Key: ');
-    if (key.length < 10) { console.log(chalk.red('  Invalid key')); process.exit(1); }
+    const key = await askPassword('  Paste Groq API Key: ');
+    if (key.length < 10) { console.log(chalk.red('  ✗  Invalid key — too short')); process.exit(1); }
     config.GROQ_API_KEY = key;
   }
 
