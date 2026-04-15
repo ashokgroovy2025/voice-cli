@@ -1,61 +1,89 @@
+import { spawn } from 'child_process';
 import { createRequire } from 'module';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
 const require = createRequire(import.meta.url);
 
-// Azure Speech SDK needs these browser globals in Node.js — set BEFORE require
-if (typeof global.window    === 'undefined') global.window    = global;
-if (typeof global.document  === 'undefined') global.document  = { createElement: () => ({}) };
-if (typeof global.navigator === 'undefined') global.navigator = { userAgent: 'node' };
-
-const sdk = require('microsoft-cognitiveservices-speech-sdk');
-
 /**
- * Transcribes audio from default microphone using Azure Speech SDK.
+ * Records audio via Windows MCI (built-in, no SoX/ffmpeg needed),
+ * then transcribes via Azure Speech REST API (no SDK, no browser globals).
  * Returns { text: Promise<string>, stop: Function }
  */
 export function transcribeAzure({ key, region, lang = 'en-IN' }) {
-  return new Promise((resolve, reject) => {
+  const tmpFile = path.join(os.tmpdir(), `vc-${Date.now()}.wav`).replace(/\\/g, '\\\\');
+
+  // PowerShell script: starts MCI recording, waits for Enter, then saves WAV
+  const psScript = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class MCI {
+    [DllImport("winmm.dll")]
+    public static extern int mciSendString(string cmd, System.Text.StringBuilder ret, int retLen, IntPtr hwnd);
+}
+'@
+[MCI]::mciSendString("open new Type waveaudio Alias mic", $null, 0, [IntPtr]::Zero) | Out-Null
+[MCI]::mciSendString("set mic time format ms bitspersample 16 samplespersec 16000 channels 1 alignment 2 bytespersec 32000", $null, 0, [IntPtr]::Zero) | Out-Null
+[MCI]::mciSendString("record mic", $null, 0, [IntPtr]::Zero) | Out-Null
+$null = [Console]::In.ReadLine()
+[MCI]::mciSendString("stop mic", $null, 0, [IntPtr]::Zero) | Out-Null
+[MCI]::mciSendString("save mic \\"${tmpFile}\\"", $null, 0, [IntPtr]::Zero) | Out-Null
+[MCI]::mciSendString("close mic", $null, 0, [IntPtr]::Zero) | Out-Null
+`;
+
+  const psProcess = spawn('powershell', [
+    '-NoProfile', '-NonInteractive', '-Command', psScript
+  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+  let resolveFinal;
+  const textPromise = new Promise((res) => { resolveFinal = res; });
+
+  const stop = async () => {
+    // Send Enter to PowerShell to trigger stop+save
+    try { psProcess.stdin.write('\n'); psProcess.stdin.end(); } catch {}
+
+    // Wait for PowerShell to finish saving
+    await new Promise((res) => {
+      psProcess.on('exit', res);
+      setTimeout(res, 3000); // max wait 3s
+    });
+
     try {
-      const speechConfig = sdk.SpeechConfig.fromSubscription(key, region);
-      speechConfig.speechRecognitionLanguage = lang;
+      const wavPath = tmpFile.replace(/\\\\/g, '\\');
+      if (!fs.existsSync(wavPath) || fs.statSync(wavPath).size < 500) {
+        resolveFinal('');
+        return;
+      }
 
-      const audioConfig = sdk.AudioConfig.fromDefaultMicrophoneInput();
-      const recognizer  = new sdk.SpeechRecognizer(speechConfig, audioConfig);
+      // Azure Speech REST API — no SDK needed
+      const url = `https://${region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=${lang}&format=simple`;
+      const wavData = fs.readFileSync(wavPath);
 
-      let finalText = '';
-      let resolveFinal;
-      const textPromise = new Promise((res) => { resolveFinal = res; });
-
-      recognizer.recognized = (s, e) => {
-        if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
-          finalText += (finalText ? ' ' : '') + e.result.text;
-        }
-      };
-
-      recognizer.startContinuousRecognitionAsync(
-        () => {
-          resolve({
-            text: textPromise,
-            stop: () => {
-              recognizer.stopContinuousRecognitionAsync(
-                () => { recognizer.close(); resolveFinal(finalText.trim()); },
-                ()  => { recognizer.close(); resolveFinal(finalText.trim()); }
-              );
-            }
-          });
+      const fetch = (await import('node-fetch')).default;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Ocp-Apim-Subscription-Key': key,
+          'Content-Type': 'audio/wav; codecs=audio/pcm; samplerate=16000',
+          'Accept': 'application/json',
         },
-        (err) => reject(new Error('Azure Speech start failed: ' + err))
-      );
+        body: wavData,
+      });
 
-      // Auto-stop after 60 seconds
-      setTimeout(() => {
-        recognizer.stopContinuousRecognitionAsync(
-          () => { recognizer.close(); resolveFinal(finalText.trim()); },
-          () => { recognizer.close(); resolveFinal(finalText.trim()); }
-        );
-      }, 60000);
+      const data = await res.json();
+      resolveFinal(data.DisplayText || data.NBest?.[0]?.Display || '');
 
     } catch (err) {
-      reject(err);
+      resolveFinal('');
+    } finally {
+      try {
+        const wavPath = tmpFile.replace(/\\\\/g, '\\');
+        if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath);
+      } catch {}
     }
-  });
+  };
+
+  return Promise.resolve({ text: textPromise, stop });
 }
