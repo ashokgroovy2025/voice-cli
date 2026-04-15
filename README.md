@@ -48,10 +48,12 @@ Every quality dictation tool is **macOS-only** (SuperWhisper, VoiceInk), **Pytho
 ## Install
 
 ```bash
-npm install -g voice-cli
+npm install -g github:ashokgroovy2025/voice-cli
 ```
 
 Requires Node.js 18+. No Python. No native build tools.
+
+> Once published to npm: `npm install -g voice-cli`
 
 ---
 
