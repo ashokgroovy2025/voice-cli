@@ -1,0 +1,57 @@
+{
+  "name": "voice-cli",
+  "version": "1.0.0",
+  "description": "Global hotkey voice-to-text daemon that auto-types in any terminal or app. Supports Azure Speech, OpenAI Whisper & Groq.",
+  "keywords": [
+    "voice-to-text",
+    "speech-to-text",
+    "cli",
+    "terminal",
+    "dictation",
+    "voice-input",
+    "global-hotkey",
+    "whisper",
+    "azure-speech",
+    "groq",
+    "auto-type",
+    "daemon",
+    "claude-cli",
+    "voice-coding",
+    "microphone",
+    "transcription",
+    "cross-platform",
+    "openai-whisper"
+  ],
+  "author": "Ashok Sachdev",
+  "license": "MIT",
+  "type": "module",
+  "homepage": "https://github.com/groovyweb/voice-cli",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/groovyweb/voice-cli.git"
+  },
+  "main": "src/index.js",
+  "bin": {
+    "voice-cli": "bin/voice-cli.js",
+    "vc": "bin/voice-cli.js"
+  },
+  "scripts": {
+    "start": "node bin/voice-cli.js",
+    "test": "node bin/voice-cli.js --test"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "clipboardy": "^4.0.0",
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.5",
+    "inquirer": "^13.4.1",
+    "microsoft-cognitiveservices-speech-sdk": "^1.42.0",
+    "node-global-key-listener": "^0.3.0"
+  },
+  "optionalDependencies": {
+    "@nut-tree/nut-js": "^4.2.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
