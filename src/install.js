@@ -25,10 +25,21 @@ export async function uninstallStartup() {
   const platform = os.platform();
 
   if (platform === 'win32') {
-    try {
-      execSync('schtasks /delete /tn "voice-cli" /f', { stdio: 'pipe' });
+    let removed = false;
+    // Remove from Startup folder
+    const startupVbs = path.join(
+      os.homedir(), 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'voice-cli.vbs'
+    );
+    if (fs.existsSync(startupVbs)) { fs.unlinkSync(startupVbs); removed = true; }
+    // Remove Task Scheduler entry
+    try { execSync('schtasks /delete /tn "voice-cli" /f', { stdio: 'pipe' }); removed = true; } catch {}
+    // Remove home vbs
+    const homeVbs = path.join(os.homedir(), '.voice-cli-startup.vbs');
+    if (fs.existsSync(homeVbs)) { fs.unlinkSync(homeVbs); removed = true; }
+
+    if (removed) {
       console.log(chalk.green('\n  ✅  voice-cli removed from startup\n'));
-    } catch {
+    } else {
       console.log(chalk.yellow('\n  ⚠  voice-cli was not in startup\n'));
     }
 
@@ -55,7 +66,7 @@ export async function uninstallStartup() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Windows: Task Scheduler — runs hidden on login
+// Windows: Startup Folder (no admin needed) with Task Scheduler fallback
 // ────────────────────────────────────────────────────────────────
 async function installWindows() {
   // Find node.exe path
@@ -67,34 +78,61 @@ async function installWindows() {
     process.exit(1);
   }
 
-  // Create a VBS launcher (runs node silently, no console window)
-  const vbsPath = path.join(os.homedir(), '.voice-cli-startup.vbs');
+  // VBS launcher — runs node silently, no console window
   const vbsContent = `Set WshShell = CreateObject("WScript.Shell")
 WshShell.Run """${nodePath}"" ""${binPath}"" --silent", 0, False`;
 
+  // Method 1: Windows Startup folder (no admin rights needed)
+  const startupFolder = path.join(
+    os.homedir(),
+    'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'
+  );
+  const startupVbs = path.join(startupFolder, 'voice-cli.vbs');
+
+  try {
+    if (!fs.existsSync(startupFolder)) fs.mkdirSync(startupFolder, { recursive: true });
+    fs.writeFileSync(startupVbs, vbsContent, 'utf8');
+    console.log(chalk.green('\n  ✅  voice-cli will start automatically on login'));
+    console.log(chalk.gray('  Method: Windows Startup folder (no admin required)'));
+    console.log(chalk.gray('  Runs silently in background — no terminal window'));
+    console.log(chalk.gray('  To remove: ') + chalk.cyan('vc --uninstall'));
+    console.log('');
+    console.log(chalk.white('  ➡  Restart your PC or run ') + chalk.cyan('vc') + chalk.white(' manually to start now.\n'));
+    return;
+  } catch { /* fall through to Task Scheduler */ }
+
+  // Method 2: Task Scheduler fallback
+  const vbsPath = path.join(os.homedir(), '.voice-cli-startup.vbs');
   fs.writeFileSync(vbsPath, vbsContent, 'utf8');
 
-  // Register with Task Scheduler
   const cmd = [
     'schtasks /create',
     '/tn "voice-cli"',
     `/tr "wscript.exe \\"${vbsPath}\\""`,
     '/sc onlogon',
     '/rl limited',
-    '/f',           // overwrite if exists
+    '/f',
   ].join(' ');
 
   try {
     execSync(cmd, { stdio: 'pipe' });
     console.log(chalk.green('\n  ✅  voice-cli will start automatically on login'));
+    console.log(chalk.gray('  Method: Windows Task Scheduler'));
     console.log(chalk.gray('  Runs silently in background — no terminal window'));
     console.log(chalk.gray('  To remove: ') + chalk.cyan('vc --uninstall'));
     console.log('');
     console.log(chalk.white('  ➡  Restart your PC or run ') + chalk.cyan('vc') + chalk.white(' manually to start now.\n'));
-  } catch (err) {
-    console.log(chalk.red('\n  ✗  Failed to register startup task'));
-    console.log(chalk.gray('  Try running as Administrator, or add manually:'));
-    console.log(chalk.cyan(`  wscript.exe "${vbsPath}"`) + chalk.gray('  (add to Startup folder)\n'));
+  } catch {
+    // Both methods failed — show manual instructions
+    console.log(chalk.yellow('\n  ⚠  Auto-install failed. Add manually (no admin needed):'));
+    console.log(chalk.gray('  ─────────────────────────────────────────────────────'));
+    console.log(chalk.white('  1. Press ') + chalk.cyan('Win + R') + chalk.white(' → type: ') + chalk.yellow('shell:startup') + chalk.white(' → press Enter'));
+    console.log(chalk.white('  2. A folder opens — create a file named: ') + chalk.yellow('voice-cli.vbs'));
+    console.log(chalk.white('  3. Paste this content into it:'));
+    console.log('');
+    console.log(chalk.gray('     ' + vbsContent.replace('\n', '\n     ')));
+    console.log('');
+    console.log(chalk.white('  4. Save and close. Done — starts on next login.\n'));
   }
 }
 

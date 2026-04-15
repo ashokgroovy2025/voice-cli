@@ -168,7 +168,9 @@ Full Azure language list: [Azure Speech Language Support](https://learn.microsof
 vc --install
 ```
 
-**Windows** — Creates a Task Scheduler job that launches the daemon silently on login (no console window).
+Runs automatically on every login — silently in background, no terminal window.
+
+**Windows** — Adds a `voice-cli.vbs` file to your Startup folder (`shell:startup`). No admin rights needed. Falls back to Task Scheduler if Startup folder is unavailable.
 
 **macOS** — Creates a `~/Library/LaunchAgents/com.voice-cli.plist` LaunchAgent.
 
@@ -178,6 +180,12 @@ To remove:
 ```bash
 vc --uninstall
 ```
+
+> **Windows manual install** (if `vc --install` fails):
+> 1. Press `Win + R` → type `shell:startup` → Enter
+> 2. Create a file `voice-cli.vbs` in that folder
+> 3. Paste the content shown by `vc --install` into it
+> 4. Save — done, starts on next login
 
 ---
 
