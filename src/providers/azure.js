@@ -1,20 +1,17 @@
 import { spawn } from 'child_process';
-import { createRequire } from 'module';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-const require = createRequire(import.meta.url);
-
 /**
- * Records audio via Windows MCI (built-in, no SoX/ffmpeg needed),
- * then transcribes via Azure Speech REST API (no SDK, no browser globals).
+ * Records audio via Windows MCI (built-in), sends to Azure Speech REST API.
  * Returns { text: Promise<string>, stop: Function }
  */
 export function transcribeAzure({ key, region, lang = 'en-IN' }) {
-  const tmpFile = path.join(os.tmpdir(), `vc-${Date.now()}.wav`).replace(/\\/g, '\\\\');
+  // Simple path — forward slashes work in PowerShell
+  const tmpFile = path.join(os.tmpdir(), `vc-${Date.now()}.wav`).replace(/\\/g, '/');
 
-  // PowerShell script: starts MCI recording, waits for Enter, then saves WAV
+  // MCI commands one per line — more reliable than chained set
   const psScript = `
 Add-Type -TypeDefinition @'
 using System;
@@ -24,44 +21,70 @@ public class MCI {
     public static extern int mciSendString(string cmd, System.Text.StringBuilder ret, int retLen, IntPtr hwnd);
 }
 '@
-[MCI]::mciSendString("open new Type waveaudio Alias mic", $null, 0, [IntPtr]::Zero) | Out-Null
-[MCI]::mciSendString("set mic time format ms bitspersample 16 samplespersec 16000 channels 1 alignment 2 bytespersec 32000", $null, 0, [IntPtr]::Zero) | Out-Null
-[MCI]::mciSendString("record mic", $null, 0, [IntPtr]::Zero) | Out-Null
+function Send-MCI($cmd) {
+    $sb = New-Object System.Text.StringBuilder 256
+    $r  = [MCI]::mciSendString($cmd, $sb, 256, [IntPtr]::Zero)
+    return $r
+}
+$file = "${tmpFile}"
+Send-MCI("open new type waveaudio alias cap") | Out-Null
+Send-MCI("set cap time format ms")           | Out-Null
+Send-MCI("set cap bitspersample 16")         | Out-Null
+Send-MCI("set cap samplespersec 16000")      | Out-Null
+Send-MCI("set cap channels 1")               | Out-Null
+Send-MCI("record cap")                       | Out-Null
+Write-Host "REC_STARTED"
+[Console]::Out.Flush()
 $null = [Console]::In.ReadLine()
-[MCI]::mciSendString("stop mic", $null, 0, [IntPtr]::Zero) | Out-Null
-[MCI]::mciSendString("save mic \\"${tmpFile}\\"", $null, 0, [IntPtr]::Zero) | Out-Null
-[MCI]::mciSendString("close mic", $null, 0, [IntPtr]::Zero) | Out-Null
+Send-MCI("stop cap")                         | Out-Null
+$saveResult = Send-MCI("save cap `"$file`"")
+Write-Host "SAVE_RESULT:$saveResult"
+Send-MCI("close cap")                        | Out-Null
+Write-Host "DONE"
+[Console]::Out.Flush()
 `;
 
   const psProcess = spawn('powershell', [
     '-NoProfile', '-NonInteractive', '-Command', psScript
   ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
+  let psOutput = '';
+  psProcess.stdout.on('data', (d) => { psOutput += d.toString(); });
+  psProcess.stderr.on('data', (d) => { psOutput += 'ERR:' + d.toString(); });
+
   let resolveFinal;
   const textPromise = new Promise((res) => { resolveFinal = res; });
 
   const stop = async () => {
-    // Send Enter to PowerShell to trigger stop+save
     try { psProcess.stdin.write('\n'); psProcess.stdin.end(); } catch {}
 
-    // Wait for PowerShell to finish saving
+    // Wait for PowerShell to save the file
     await new Promise((res) => {
       psProcess.on('exit', res);
-      setTimeout(res, 3000); // max wait 3s
+      setTimeout(res, 4000);
     });
 
-    try {
-      const wavPath = tmpFile.replace(/\\\\/g, '\\');
-      if (!fs.existsSync(wavPath) || fs.statSync(wavPath).size < 500) {
-        resolveFinal('');
-        return;
-      }
+    // Debug: show what PowerShell output and file status
+    const wavPath = tmpFile.replace(/\//g, '\\');
+    const fileExists = fs.existsSync(wavPath);
+    const fileSize   = fileExists ? fs.statSync(wavPath).size : 0;
 
-      // Azure Speech REST API — no SDK needed
+    console.log('\n' +
+      `  [debug] PS output: ${psOutput.trim().replace(/\n/g, ' | ')}\n` +
+      `  [debug] WAV: ${wavPath} | exists: ${fileExists} | size: ${fileSize} bytes`
+    );
+
+    if (!fileExists || fileSize < 500) {
+      console.log('  [debug] WAV too small — mic not captured');
+      resolveFinal('');
+      return;
+    }
+
+    try {
       const url = `https://${region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=${lang}&format=simple`;
       const wavData = fs.readFileSync(wavPath);
 
-      const fetch = (await import('node-fetch')).default;
+      const { default: fetch } = await import('node-fetch');
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -72,16 +95,24 @@ $null = [Console]::In.ReadLine()
         body: wavData,
       });
 
-      const data = await res.json();
-      resolveFinal(data.DisplayText || data.NBest?.[0]?.Display || '');
+      const raw  = await res.text();
+      console.log(`  [debug] Azure response (${res.status}): ${raw}`);
+
+      let data;
+      try { data = JSON.parse(raw); } catch { data = {}; }
+
+      resolveFinal(
+        data.DisplayText ||
+        data.NBest?.[0]?.Display ||
+        data.RecognitionStatus === 'NoMatch' ? '' :
+        ''
+      );
 
     } catch (err) {
+      console.log('  [debug] fetch error:', err.message);
       resolveFinal('');
     } finally {
-      try {
-        const wavPath = tmpFile.replace(/\\\\/g, '\\');
-        if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath);
-      } catch {}
+      try { if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath); } catch {}
     }
   };
 
